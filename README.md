@@ -9,5 +9,6 @@ All CSV files are exported on-demand, I didn't automate the data retrieval using
 - "Sunny_Boy_xxx.csv" is a sample inverter export file
 - "Enedis_Prod_Jour_xxx.csv" is a sample production (as received on the electrical supplier's network) export file
 - "Enedis_Conso_Jour_xxx.csv" is a sample consumption (as produced on the electrical supplier's network) export file
+- "Screen Shot 2024-08-21 at 20.50.30.jpg" shows a sample Plotly graph
 
 Contact me at marcelbechtiger@gmail.com.
