@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/opt/local/bin/python
 
 '''
 plot solar panels production and Engie usage in kW per day
@@ -6,46 +6,48 @@ data made available in CSV - production by Sunny Boy converter and consumption/p
 or imported from the sqlite database where the clean csv dataframes are stored
 usage : ./plot_purchased_produces.py {--source=csv|sql} {--trace} {--plot}
 created : 20220714 - marcelbechtiger@gmail.com
-updated : 20221006, 20230117, 
-20231112 (python 3.10 and pandas>=2.0.0), 
+updated : 20221006, 20230117,
+20231112 (python 3.10 and pandas>=2.0.0),
 20240813 (added Sqlite, plotly; cleanup) - note that matplotlib displays some crap at the right of the plot with multiple inputs
+20241222 pandas, matplotlib, plotly : must install specifically on Wilma/Python 3 using Software Manager
+   ENEDIS changed files naming and CSV to XLSX : now concatenate CSV & XLSX dataframes
+   removed matplotlib support to clean up code
 '''
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.dates import MonthLocator, DateFormatter
 import pandas as pd
 from datetime import datetime as dt
 from pathlib import Path
 import sqlite3
 import plotly.graph_objects as go
 import sys
-import argparse 
+import argparse
 
-CSV_FOLDER = '/home/marcel/SolarPanels/SOLAR POWER METRICS'
-SQLITE_DATABASE = '/home/marcel/SolarPanels/solarPanels_data.sqlite'
+BASE = '/Users/marcel/Projects/'
+CSV_XLSX_FOLDER = BASE + 'SOLAR POWER METRICS'
+SQLITE_DATABASE = BASE + 'python/solarPanels/solarPanels_data.sqlite'
 SOLAR_LIMIT_MAX = 100000000
 
 csvFileCount = 0
 
 parser = argparse.ArgumentParser(prog='plot_purchased_produced.py',
     description='''
-    Process solar panels (production) and Enedis/Linky (consumption/production) 
-    energy data. Version 20240813.
+    Process solar panels (production) and Enedis/Linky (consumption/production)
+    energy data. Version 20241222.
     ''',
     epilog='''
-    The data is initially loaded from various CSV, 
+    The data is initially loaded from various CSV/XLSX,
     then stored in a Sqlite database for later & faster retrieval.
-    Plotting uses plotly by default and alternatively matplotlib (since there seems to be a bug, it is commented out).
-    Please note that the CSV source folder and Sqlite database are hard-coded at the top of the script.
+    Plotting uses plotly.
+    Please note that the CSV/XLSX source folder and Sqlite database are hard-coded at the top of this script.
     ''')
-parser.add_argument('-s', '--source', help='data source can be set to CSV or SQL - default CSV', 
-    choices=['CSV', 'csv', 'SQL', 'sql'], default='CSV')
-parser.add_argument('-t', '--trace', help='specify to activate tracing', 
+parser.add_argument('-s', '--source', help='data source can be set to or SQL - default XLS',
+    choices=['SQL', 'sql', 'XLS', 'xls'], default='XLS')
+parser.add_argument('-t', '--trace', help='specify to activate tracing',
     action='store_true')
-parser.add_argument('-p', '--plot', help='specify to activate plotting', 
+parser.add_argument('-p', '--plot', help='specify to activate plotting',
     action='store_true')
-parser.add_argument('-i', '--info', help='specify to just get SQL stored info', 
+parser.add_argument('-i', '--info', help='specify to just get SQL stored info',
     action='store_true')
 args = parser.parse_args()
 
@@ -69,12 +71,12 @@ def dataframePrettyPrint(df):
 
 # -------------------- consumed electricity Engie/Linky --------------------
 
-def loadEnedisConsumedCsv(file):
+def loadEnedisConsumedCsv(file, dummy):
     df = pd.read_csv(file, sep=';', skiprows=2, skipfooter=0, engine='python', on_bad_lines='skip')
 
     # ignore crappy rows
-    df = df[df['Type de releve'] == 'Arrêté quotidien'] 
- 
+    df = df[df['Type de releve'] == 'Arrêté quotidien']
+
     dtm = lambda x: dt.strptime(x, '%Y-%m-%d')
     df['Horodate'] = df['Horodate'].str[:10].apply(dtm)
     df['Horodate'] = pd.to_datetime(df['Horodate'], format='%Y-%m-%d')
@@ -97,12 +99,12 @@ def loadEnedisConsumedCsv(file):
     df_f = df_f.drop(['EAS F1', 'EAS F2', 'Total', 'Diff'], axis=1)
     df_f = df_f.rename(columns={'Diff2': 'Diff'})
     ##dataframePrettyPrint(df_f)
- 
+
     return df_f
 
 # -------------------- PV panels produced electricity SunnyBoy --------------------
 
-def loadSunnyBoyCsv(file):
+def loadSunnyBoyCsv(file, dummy):
     df = pd.read_csv(file, sep=',', skiprows=8, skipfooter=0, engine='python', on_bad_lines='skip')
 
     dtm = lambda x: dt.strptime(x, '%d.%m.%Y')
@@ -121,9 +123,9 @@ def loadSunnyBoyCsv(file):
     # ignore crappy values : 2022<date<2025, 0<wh<SOLAR_LIMIT_MAX
     df_f = df_f[df_f['Date'] >= '2022-01-01 00:00:00']
     df_f = df_f[df_f['Date'] <= '2025-01-01 00:00:00']
-    df_f = df_f[df_f['Total'] < SOLAR_LIMIT_MAX] 
+    df_f = df_f[df_f['Total'] < SOLAR_LIMIT_MAX]
     df_f = df_f[df_f['Total'] > 0.0]
- 
+
     df_f_shift = df_f.Total.shift(1)
     df_f['Diff'] = df_f['Total'] - df_f_shift
     df_f['Diff'] = df_f['Diff'] / 1000
@@ -137,11 +139,11 @@ def loadSunnyBoyCsv(file):
 
 # -------------------- produced electricity Engie/Linky --------------------
 
-def loadEnedisProducedCsv(file):
+def loadEnedisProducedCsv(file, dummy):
     df = pd.read_csv(file, sep=';', skiprows=2, skipfooter=0, engine='python', on_bad_lines='skip')
- 
+
     # ignore crappy rows
-    df = df[df['Type de releve'] == 'Arrêté quotidien'] 
+    df = df[df['Type de releve'] == 'Arrêté quotidien']
 
     dtm = lambda x: dt.strptime(x, '%Y-%m-%d')
     df['Horodate'] = df['Horodate'].str[:10].apply(dtm)
@@ -165,12 +167,26 @@ def loadEnedisProducedCsv(file):
     df_f = df_f.drop(['Total', 'Diff'], axis=1)
     df_f = df_f.rename(columns={'Diff2': 'Diff'})
     ##dataframePrettyPrint(df_f)
- 
+
     return df_f
+
+# -------------------- consumed or produced electricity Engie/Linky --------------------
+
+def loadEnedisXlsx(file, sheetName):
+    # sheetname or index can be used
+    df = pd.read_excel(file, sheet_name=sheetName, usecols='B:C', names=['Date','Diff'],
+        skiprows=13, parse_dates=[0], date_format='%d/%m/%Y',
+        decimal=',', dtype={'Diff':float})
+
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d')
+    df['Date'] = df['Date'].dt.strftime('%Y-%m-%d')
+    ##dataframePrettyPrint(df)
+
+    return df
 
 # -------------------- combine files in directory to dataframe --------------------
 
-def combineCsvInFolder(directory, fileName, functionName):
+def combineExportFileInFolder(directory, fileName, functionName, functionArg):
     files = list(Path(directory).glob(fileName))
     if (len(files)):
         try:
@@ -179,15 +195,31 @@ def combineCsvInFolder(directory, fileName, functionName):
             fileCount = 0
             for file in files:
                 fileCount = fileCount + 1
-                if trace: print(fileCount, file)
+                if trace:
+                    if functionArg:
+                        print(fileCount, file, '#', functionArg, '#')
+                    else:
+                        print(fileCount, file)
                 if fileCount == 1:
-                    dfc = functionName(file)
+                    dfc = functionName(file, functionArg)
                 else:
-                    dff = functionName(file)
+                    dff = functionName(file, functionArg)
                     dft = pd.concat([dfc, dff], axis=0)
                     dfc = dft
+        except ValueError as e:
+            print('*****ValueError in file error - aborting !!')
+            print (e.args)
+            quit()
+        except IndexError as e:
+            print('*****IndexError in file error - aborting !!')
+            print (e.args)
+            quit()
+        except TypeError as e:
+            print('*****TypeError in file error - aborting !!')
+            print (e.args)
+            quit()
         except Exception as e:
-            print('*****CSV file error - aborting !!')
+            print('*****file error - aborting !!')
             print (e.message, e.args)
             quit()
 
@@ -199,7 +231,7 @@ def combineCsvInFolder(directory, fileName, functionName):
     dfc.sort_values(['Date'], inplace=True)
     dfc = dfc.drop_duplicates(subset=['Date'])
 
-    if trace: 
+    if trace:
         dataframePrettyPrint(dfc)
 
     return fileCount, dfc
@@ -208,22 +240,22 @@ def combineCsvInFolder(directory, fileName, functionName):
 
 def getTableStats(conn, tableName):
     cursor = conn.execute('select count(*) from ' + tableName)
-    for row in cursor: 
+    for row in cursor:
         nbRows = row[0]
     cursor = conn.execute('select min(date), max(date) from ' + tableName)
-    for row in cursor: 
+    for row in cursor:
         dateMin = row[0]
         dateMax = row[1]
     cursor = conn.execute('select min(diff), max(diff) from ' + tableName)
-    for row in cursor: 
+    for row in cursor:
         diffMin = row[0]
         diffMax = row[1]
-    print("*****table %s contains %d rows with %s<date<%s and %s<daily Wh<%s" %
+    print("*****table %s contains %d rows ranging %s<date<%s and %s<daily Wh<%s" %
         (tableName, nbRows, dateMin, dateMax, diffMin, diffMax))
-    
+
     # total kWh for table
     cursor = conn.execute('select sum(diff) from ' + tableName)
-    for row in cursor: 
+    for row in cursor:
         diffSum = row[0]
     print("     for a current total of {:,} kWh".format(int(diffSum)))
 
@@ -255,38 +287,9 @@ def loadDataframeFromSql(dbName, tableName):
     getTableStats(conn, tableName)
     df = pd.read_sql('SELECT Date, Diff from ' + tableName, conn, coerce_float=True, parse_dates=('Date'))
     conn.close()
-    if trace: 
+    if trace:
         dataframePrettyPrint(df)
     return df
-
-# -------------------- plot using matplotlib --------------------
-# seems to have a bug at the right/end of the graph when combining dataframes, but not with single dataframe...
-
-def plotCombined_matplotlib(df_purchasedEnedis, df_sendToEnedis, df_producedSolarPanels):
-    plt.title('84 Condamines - SolarPanels vs Enedis')
-    plt.xlabel('Date')
-    plt.ylabel('kWh per day')
-    plt.grid(True, which='both', lw=1, ls='--', c='.5')
-
-    ax = plt.gca()
-    ax.xaxis.set_major_locator(MonthLocator())
-    ax.xaxis.set_minor_locator(MonthLocator())
-
-    lw = 0.5
-    plt.plot(df_purchasedEnedis.iloc[:,0], df_purchasedEnedis.iloc[:,1], 
-        label='purchased from Enedis', linewidth=lw, linestyle='-', color='b')
-    plt.plot(df_sendToEnedis.iloc[:,0], df_sendToEnedis.iloc[:,1], 
-        label='sent to Enedis', linewidth=lw, linestyle='-', color='g')
-    plt.plot(df_producedSolarPanels.iloc[:,0], df_producedSolarPanels.iloc[:,1],
-        label='produced by SolarPanels', linewidth=lw, linestyle='-', color='r')
-
-    plt.tick_params(axis='x', which='major')
-    plt.xticks(rotation=90)
-    plt.tight_layout(pad=2)
-    plt.legend(shadow=True)
-
-    plt.show()
-    plt.show()
 
 # -------------------- plot using plotly --------------------
 
@@ -294,23 +297,24 @@ def plotCombined_plotly(df_purchasedEnedis, df_sendToEnedis, df_producedSolarPan
 
     fig = go.Figure()
 
-    fig.add_trace(go.Scatter(x=df_producedSolarPanels.iloc[:,0], y=df_producedSolarPanels.iloc[:,1], 
-        name='produced by SolarPanels', 
+    fig.add_trace(go.Scatter(x=df_producedSolarPanels.iloc[:,0], y=df_producedSolarPanels.iloc[:,1],
+        name='produced by SolarPanels',
         line=dict(color='green', width=1),
         mode='lines'))
-    fig.add_trace(go.Scatter(x=df_purchasedEnedis.iloc[:,0], y=df_purchasedEnedis.iloc[:,1], 
-        name='purchased from Enedis', 
+    fig.add_trace(go.Scatter(x=df_purchasedEnedis.iloc[:,0], y=df_purchasedEnedis.iloc[:,1],
+        name='purchased from Enedis',
         line=dict(color='red', width=1),
         mode='lines'))
-    fig.add_trace(go.Scatter(x=df_sendToEnedis.iloc[:,0], y=df_sendToEnedis.iloc[:,1], 
-        name='sent to Enedis', 
+    fig.add_trace(go.Scatter(x=df_sendToEnedis.iloc[:,0], y=df_sendToEnedis.iloc[:,1],
+        name='sent to Enedis',
         line=dict(color='blue', width=1),
         mode='lines'))
- 
+
     fig.update_layout(title='84 Condamines - SolarPanels vs Enedis/Linky',
         xaxis_title='Date',
         yaxis_title='kWh per day')
-    
+
+
     fig.show()
 
 # -------------------- main --------------------
@@ -319,7 +323,7 @@ def plotCombined_plotly(df_purchasedEnedis, df_sendToEnedis, df_producedSolarPan
 if __name__ == '__main__':
 
     # just get SQL database stats
-    if info:    
+    if info:
         print("*****getting stats from database:%s" % SQLITE_DATABASE)
         conn = sqlite3.connect(SQLITE_DATABASE)
         getTableStats(conn, 'Enedis_Conso_Jour')
@@ -327,21 +331,47 @@ if __name__ == '__main__':
         getTableStats(conn, 'Sunny_Boy')
         conn.close()
     else:
-        if source == 'csv':
+        if source == 'xls':
             # load all csv in folder and concatenate to clean dataframes
-            print("*****loading csv files in folder:%s" % CSV_FOLDER)
-            fc1, df1_p = combineCsvInFolder(CSV_FOLDER, 'Enedis_Conso_Jour*.csv', loadEnedisConsumedCsv)
-            fc2, df2_p = combineCsvInFolder(CSV_FOLDER, 'Enedis_Prod_Jour*.csv', loadEnedisProducedCsv)
-            fc3, df3_p = combineCsvInFolder(CSV_FOLDER, 'Sunny_Boy*.csv', loadSunnyBoyCsv)
-            csvFileCount = fc1 + fc2 + fc3
-            print("*****%d csv files" % csvFileCount)
-        
+            print("*****loading csv files in folder:%s" % CSV_XLSX_FOLDER)
+            fc1_c, df1_p_c = combineExportFileInFolder(CSV_XLSX_FOLDER, 'Enedis_Conso_Jour*.csv', loadEnedisConsumedCsv, '')
+            print("*****%d Enedis_Conso_Jour csv files" % fc1_c)
+            fc2_c, df2_p_c = combineExportFileInFolder(CSV_XLSX_FOLDER, 'Enedis_Prod_Jour*.csv', loadEnedisProducedCsv, '')
+            print("*****%d Enedis_Prod_Jour csv files" % fc2_c)
+            fc3_c, df3_p = combineExportFileInFolder(CSV_XLSX_FOLDER, 'Sunny_Boy*.csv', loadSunnyBoyCsv, '')
+            print("*****%d Sunny_Boy csv files" % fc3_c)
+            csvFileCount = fc1_c + fc2_c + fc3_c
+            print("*****%d total csv files" % csvFileCount)
+
+            # load all xlsx in folder and concatenate to clean dataframes
+            print("*****loading xlsx files in folder:%s" % CSV_XLSX_FOLDER)
+            fc1_x, df1_p_x = combineExportFileInFolder(CSV_XLSX_FOLDER, '19574963805222_Export_energie_Consommation-Production_*.xlsx',
+                loadEnedisXlsx, 'Export Consommation Quotidienne')
+            print("*****%d Export_energie_Consommation xlsx files" % fc1_x)
+            fc2_x, df2_p_x = combineExportFileInFolder(CSV_XLSX_FOLDER, '19574963805222_Export_energie_Consommation-Production_*.xlsx',
+                loadEnedisXlsx, 'Export Production Quotidienne')
+            print("*****%d Export_energie_Production xlsx files" % fc2_x)
+            xlsxFileCount = fc1_x + fc2_x
+            print("*****%d total xlsx files" % xlsxFileCount)
+
+            # concatenate CSV and XLSX dataframes
+            df1_p = pd.concat([df1_p_c, df1_p_x], axis=0)
+            df2_p = pd.concat([df2_p_c, df2_p_x], axis=0)
+
+            if False:
+                df1_p_c.info(verbose=True)
+                df2_p_c.info(verbose=True)
+                df3_p.info(verbose=True)
+                df1_p_x.info(verbose=True)
+                df2_p_x.info(verbose=True)
+                df1_p.info(verbose=True)
+                df2_p.info(verbose=True)
+
             # store dataframes to sqlite
             print("*****storing dataframes to database:%s" % SQLITE_DATABASE)
             storeDataframeToSql(SQLITE_DATABASE, 'Enedis_Conso_Jour', df1_p)
             storeDataframeToSql(SQLITE_DATABASE, 'Enedis_Prod_Jour', df2_p)
             storeDataframeToSql(SQLITE_DATABASE, 'Sunny_Boy', df3_p)
-        
         else:
             # load clean dataframes from sqlite
             print("*****loading dataframes from database:%s" % SQLITE_DATABASE)
